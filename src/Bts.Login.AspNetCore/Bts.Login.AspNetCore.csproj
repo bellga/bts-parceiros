@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <PackageId>Bts.Login.AspNetCore</PackageId>
+    <Description>"Entrar com BTS" para sites e APIs ASP.NET Core: login OpenID Connect com PKCE na Bellga Tech Solutions, dados da pessoa e níveis de verificação, validação de tokens na API e o botão oficial.</Description>
+    <PackageTags>bts;bellga;login;openid-connect;oidc;pkce</PackageTags>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Bts.Login.AspNetCore.Testes" />
+  </ItemGroup>
+</Project>

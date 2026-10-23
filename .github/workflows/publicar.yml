@@ -1,0 +1,36 @@
+name: Publicar pacotes
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publicar:
+    # Windows: o Bts.Login.Maui precisa sair com as plataformas Android e Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Workload do MAUI
+        run: dotnet workload install maui
+      - name: Testes
+        run: dotnet test tests/Bts.Login.AspNetCore.Testes -c Release; dotnet test tests/Bts.Login.Cliente.Testes -c Release
+      - name: Empacotar
+        shell: bash
+        run: |
+          VERSAO="${GITHUB_REF_NAME#v}"
+          for p in Bts.Login.AspNetCore Bts.Login.Cliente Bts.Login.Maui; do
+            dotnet pack "src/$p/$p.csproj" -c Release -p:Version=$VERSAO -o pacotes
+          done
+      - name: Publicar no GitHub Packages
+        shell: bash
+        run: |
+          dotnet nuget push "pacotes/*.nupkg" \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --api-key "${{ secrets.GITHUB_TOKEN }}" --skip-duplicate

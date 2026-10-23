@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Bts.Login.AspNetCore/Bts.Login.AspNetCore.csproj" />
+    <Project Path="src/Bts.Login.Cliente/Bts.Login.Cliente.csproj" />
+    <Project Path="src/Bts.Login.Maui/Bts.Login.Maui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Bts.Login.AspNetCore.Testes/Bts.Login.AspNetCore.Testes.csproj" />
+    <Project Path="tests/Bts.Login.Cliente.Testes/Bts.Login.Cliente.Testes.csproj" />
+  </Folder>
+  <Folder Name="/exemplos/">
+    <Project Path="exemplos/SiteParceiro/SiteParceiro.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <UserSecretsId>bts-exemplo-site-parceiro</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- No seu projeto: <PackageReference Include="Bts.Login.AspNetCore" Version="1.*" /> -->
+    <ProjectReference Include="../../src/Bts.Login.AspNetCore/Bts.Login.AspNetCore.csproj" />
+  </ItemGroup>
+</Project>

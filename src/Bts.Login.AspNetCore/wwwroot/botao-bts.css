@@ -1,0 +1,20 @@
+/* Botão "Entrar com BTS" — https://bellga.tech/marca.html
+   Copie este CSS para o seu site. Não mude as cores, o texto nem as proporções. */
+.bts-botao{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;height:40px;padding:0 16px 0 10px;
+  border:1px solid transparent;border-radius:8px;font:500 15px/1 Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  text-decoration:none;white-space:nowrap;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.bts-botao:focus-visible{outline:2px solid #0f5c55;outline-offset:2px}
+.bts-icone{flex:none;display:grid;place-items:center;width:22px;height:22px;border-radius:5.5px}
+.bts-icone svg{width:14.5px;height:14.5px;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.bts-escuro{background:#0f5c55;color:#fff}
+.bts-escuro:hover{background:#0c4b45}
+.bts-escuro .bts-icone{background:#fff}
+.bts-escuro .bts-icone svg{stroke:#0f5c55}
+.bts-claro{background:#fff;color:#14201f;border-color:#c3cbc6}
+.bts-claro:hover{background:#f3f5f2}
+.bts-claro .bts-icone{background:#0f5c55}
+.bts-claro .bts-icone svg{stroke:#fff}
+/* Só o ícone (40 × 40): use com aria-label="Entrar com BTS" */
+.bts-so-icone{width:40px;padding:0;justify-content:center}
+.bts-so-icone.bts-escuro .bts-icone{width:40px;height:40px;background:none}
+.bts-so-icone.bts-escuro .bts-icone svg{width:26.4px;height:26.4px;stroke:#fff}
