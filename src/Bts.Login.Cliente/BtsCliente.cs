@@ -21,7 +21,7 @@ public sealed class BtsClienteOptions
     public string ClientId { get; set; } = "";
 
     /// <summary>
-    /// Endereço de volta cadastrado na BTS. Celular: esquema próprio do app (ex.: <c>club.deluxedriver.app:/bts</c>).
+    /// Endereço de volta cadastrado na BTS. Celular: esquema próprio do app (ex.: <c>com.exemplo.app:/bts</c>).
     /// Computador: <c>http://127.0.0.1/bts</c> (a porta é escolhida na hora; cadastre sem porta).
     /// </summary>
     public string RetornoUri { get; set; } = "";

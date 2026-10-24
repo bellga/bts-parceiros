@@ -6,12 +6,14 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   publicar:
     # Windows: o Bts.Login.Maui precisa sair com as plataformas Android e Windows
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write # Trusted Publishing: o GitHub prova ao nuget.org que a publicação vem deste workflow
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -25,19 +27,26 @@ jobs:
         shell: bash
         run: |
           VERSAO="${GITHUB_REF_NAME#v}"
+          grep -q "<Version>$VERSAO</Version>" Directory.Build.props \
+            || { echo "A tag v$VERSAO não bate com a <Version> do Directory.Build.props"; exit 1; }
           for p in Bts.Login.AspNetCore Bts.Login.Cliente Bts.Login.Maui; do
-            dotnet pack "src/$p/$p.csproj" -c Release -p:Version=$VERSAO -o pacotes
+            dotnet pack "src/$p/$p.csproj" -c Release -o pacotes
           done
-      - name: Publicar no GitHub Packages
+          ls -l pacotes
+      # Chave temporária (1 hora, uso único), pedida logo antes de enviar
+      - name: Entrar no nuget.org (Trusted Publishing)
+        uses: NuGet/login@v1
+        id: nuget
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Publicar no nuget.org
         shell: bash
         run: |
-          # Um arquivo por vez: o curinga do "nuget push" não funciona no Windows
-          ls -l pacotes
+          # Um arquivo por vez (o curinga do "nuget push" não funciona no Windows); o .snupkg vai junto
           shopt -s nullglob
           arquivos=(pacotes/*.nupkg)
           [ ${#arquivos[@]} -eq 3 ] || { echo "Esperava 3 pacotes, achei ${#arquivos[@]}"; exit 1; }
           for f in "${arquivos[@]}"; do
-            dotnet nuget push "$f" \
-              --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
-              --api-key "${{ secrets.GITHUB_TOKEN }}" --skip-duplicate
+            dotnet nuget push "$f" --source https://api.nuget.org/v3/index.json \
+              --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --skip-duplicate
           done

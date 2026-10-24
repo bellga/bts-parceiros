@@ -19,7 +19,7 @@ Peça o cadastro à BTS informando:
 - **Nome** que aparece na tela de autorização ("Fulano quer: …").
 - **Endereços de volta** (precisam ser exatos):
   - site: `https://SEU-SITE/signin-bts` e, para a saída, `https://SEU-SITE/signout-callback-bts`;
-  - app de celular: um esquema próprio com o domínio invertido, por exemplo `club.deluxedriver.app:/bts`;
+  - app de celular: um esquema próprio com o domínio invertido, por exemplo `com.exemplo.app:/bts`;
   - app de computador: `http://127.0.0.1/bts` (sem porta — o app escolhe uma porta livre na hora).
 - **Escopos** que vai pedir (só o necessário):
 
@@ -35,31 +35,18 @@ Peça o cadastro à BTS informando:
 Você recebe o **ClientId** e, para site com servidor, um **segredo** (guarde fora do código).
 Apps (celular/computador) não têm segredo: a segurança vem do PKCE.
 
-## 2. De onde vêm os pacotes
+## 2. Instalação
 
-Os pacotes ficam no GitHub Packages da bellga. No `nuget.config` do seu projeto:
+Os pacotes estão no [nuget.org](https://www.nuget.org/packages?q=Bts.Login) (sem token, sem configuração):
 
-```xml
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-    <add key="bts" value="https://nuget.pkg.github.com/bellga/index.json" />
-  </packageSources>
-  <packageSourceMapping>
-    <packageSource key="nuget.org"><package pattern="*" /></packageSource>
-    <packageSource key="bts"><package pattern="Bts.Login.*" /></packageSource>
-  </packageSourceMapping>
-  <packageSourceCredentials>
-    <bts>
-      <add key="Username" value="%GITHUB_PACKAGES_USER%" />
-      <add key="ClearTextPassword" value="%GITHUB_PACKAGES_TOKEN%" />
-    </bts>
-  </packageSourceCredentials>
-</configuration>
+```bash
+dotnet add package Bts.Login.AspNetCore   # site e API
+dotnet add package Bts.Login.Maui         # app MAUI (traz o Bts.Login.Cliente junto)
+dotnet add package Bts.Login.Cliente      # outros apps .NET
 ```
 
-O token (`read:packages`) fica em variável de ambiente, nunca no arquivo.
+Os pacotes saem só pelo workflow deste repositório (Trusted Publishing, sem chave guardada) e trazem
+símbolos com Source Link. Se o seu `nuget.config` usa `packageSourceMapping`, mapeie `Bts.Login.*` para o nuget.org.
 
 ## 3. Site ASP.NET Core
 
@@ -113,7 +100,7 @@ Só aceita **access token** da BTS (`typ` = `at+jwt`) emitido para os seus Clien
 ```csharp
 var bts = BtsLoginMaui.Criar(
     clientId: "meu-app",
-    retornoCelular: "club.deluxedriver.app:/bts",
+    retornoCelular: "com.exemplo.app:/bts",
     retornoComputador: "http://127.0.0.1/bts",
     configurar: o => { o.Escopos.Add("phone"); o.Escopos.Add("bts.niveis"); o.Escopos.Add("offline_access"); });
 
@@ -138,7 +125,7 @@ catch (BtsCanceladoException) { /* a pessoa desistiu */ }
 // Platforms/Android/BtsRetornoActivity.cs
 [Activity(NoHistory = true, LaunchMode = LaunchMode.SingleTop, Exported = true)]
 [IntentFilter([Intent.ActionView], Categories = [Intent.CategoryDefault, Intent.CategoryBrowsable],
-    DataScheme = "club.deluxedriver.app")]
+    DataScheme = "com.exemplo.app")]
 public class BtsRetornoActivity : WebAuthenticatorCallbackActivity { }
 ```
 
@@ -150,7 +137,7 @@ E no `AndroidManifest.xml`, dentro de `<manifest>`:
 </queries>
 ```
 
-**iOS** — registre o esquema em `Info.plist` (`CFBundleURLTypes` → `CFBundleURLSchemes` = `club.deluxedriver.app`).
+**iOS** — registre o esquema em `Info.plist` (`CFBundleURLTypes` → `CFBundleURLSchemes` = `com.exemplo.app`).
 
 **Windows** — nada a configurar: o login abre no navegador padrão e volta para `http://127.0.0.1:<porta>/bts`.
 
@@ -164,6 +151,11 @@ Outros apps .NET (WPF, console, Avalonia): use `Bts.Login.Cliente` com `new Nave
 - Use o botão oficial sem mudar cores, texto ou proporções (https://bellga.tech/marca.html).
 - Os dados recebidos seguem a LGPD: use só para a finalidade informada à pessoa e apague quando ela pedir.
 
+## Licença
+
+Código sob a licença MIT (arquivo `LICENSE`). O nome BTS, o escudo e o botão "Entrar com BTS" são marcas da
+Bellga Tech Solutions: use-os só como descrito em https://bellga.tech/marca.html.
+
 ## Desenvolvimento deste repositório
 
 ```bash
@@ -172,4 +164,5 @@ dotnet test bts-parceiros.slnx
 
 O `Bts.Login.Maui` compila `net10.0` e `net10.0-android` em qualquer sistema com o workload `maui-android`;
 `net10.0-windows` só no Windows e `net10.0-ios` só no Mac.
-Publicar: crie a tag `vX.Y.Z` (o workflow `publicar.yml` empacota e envia ao GitHub Packages).
+Publicar: suba a `<Version>` no `Directory.Build.props`, anote no `CHANGELOG.md` e crie a tag `vX.Y.Z`
+(o workflow `publicar.yml` testa, empacota e envia ao nuget.org por Trusted Publishing).
