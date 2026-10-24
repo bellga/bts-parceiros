@@ -31,6 +31,13 @@ jobs:
       - name: Publicar no GitHub Packages
         shell: bash
         run: |
-          dotnet nuget push "pacotes/*.nupkg" \
-            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
-            --api-key "${{ secrets.GITHUB_TOKEN }}" --skip-duplicate
+          # Um arquivo por vez: o curinga do "nuget push" não funciona no Windows
+          ls -l pacotes
+          shopt -s nullglob
+          arquivos=(pacotes/*.nupkg)
+          [ ${#arquivos[@]} -eq 3 ] || { echo "Esperava 3 pacotes, achei ${#arquivos[@]}"; exit 1; }
+          for f in "${arquivos[@]}"; do
+            dotnet nuget push "$f" \
+              --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+              --api-key "${{ secrets.GITHUB_TOKEN }}" --skip-duplicate
+          done
