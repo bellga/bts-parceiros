@@ -139,6 +139,25 @@ builder.Services.AddAuthentication(BtsPadroes.EsquemaBearer)
 
 Só aceita **access token** da BTS (`typ` = `at+jwt`) emitido para os seus ClientIds; id_token não serve de chave.
 
+O access token já traz os dados da pessoa — a API pode confiar só nele, sem chamar o `/connect/userinfo` a cada pedido:
+
+| Claim | Quando vem |
+|---|---|
+| `sub` | sempre (identificador da pessoa só para você; use como chave) |
+| `name` | escopo `profile` |
+| `email`, `email_verified` | escopo `email` (sempre confirmado) |
+| `phone_number`, `phone_number_verified` | escopo `phone` **e** celular confirmado |
+| `bts_niveis` | escopo `bts.niveis` (lista: `[1, 3]`) |
+
+Na API: `User.IdBts()`, `User.EmailBts()`, `User.CelularBts()`, `User.NiveisBts()`, `User.TemNivelBts(3)` e a política
+`ExigirNivelBts(3)` funcionam igual ao site.
+
+- O token vale **15 minutos** e mostra os dados de quando foi emitido. A cada renovação (refresh token) a BTS relê a
+  conta: um nível novo ou um celular que deixou de valer aparece no próximo token. Para uma ação crítica que precisa do
+  dado deste instante, chame `https://login.bellga.tech/connect/userinfo` com o mesmo token (ele lê a conta na hora).
+- Claim ausente = **não permitido ou não confirmado**, nunca “vazio”. Sem `phone_number`, a pessoa não tem celular
+  confirmado ou não liberou o escopo `phone`.
+
 ## 6. App .NET MAUI
 
 ```csharp

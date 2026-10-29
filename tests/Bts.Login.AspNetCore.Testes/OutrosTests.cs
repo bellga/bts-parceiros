@@ -109,13 +109,19 @@ public class BearerTests
             app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();
-            app.UseEndpoints(e => e.MapGet("/dados", (ClaimsPrincipal u) => u.IdBts()).RequireAuthorization());
+            app.UseEndpoints(e =>
+            {
+                e.MapGet("/dados", (ClaimsPrincipal u) => u.IdBts()).RequireAuthorization();
+                e.MapGet("/pessoa", (ClaimsPrincipal u) => $"{u.NomeBts()}|{u.EmailBts()}|{u.CelularBts()}|{string.Join(',', u.NiveisBts())}")
+                    .RequireAuthorization();
+                e.MapGet("/so-celular", () => "ok").RequireAuthorization(p => p.ExigirNivelBts(3));
+            });
         }));
         return await host.StartAsync();
     }
 
     private static string Token(string aud = "app-parceiro", string tipo = "at+jwt", SecurityKey? chave = null,
-        string emissor = SiteTeste.Emissor) =>
+        string emissor = SiteTeste.Emissor, Dictionary<string, object>? dados = null) =>
         new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = emissor,
@@ -123,13 +129,13 @@ public class BearerTests
             TokenType = tipo,
             Expires = DateTime.UtcNow.AddMinutes(15),
             SigningCredentials = new SigningCredentials(chave ?? SiteTeste.Chave, SecurityAlgorithms.RsaSha256),
-            Claims = new Dictionary<string, object> { ["sub"] = "sub-app" }
+            Claims = dados ?? new Dictionary<string, object> { ["sub"] = "sub-app" }
         });
 
-    private static async Task<HttpResponseMessage> ChamarAsync(IHost host, string? token)
+    private static async Task<HttpResponseMessage> ChamarAsync(IHost host, string? token, string rota = "/dados")
     {
         var cliente = host.GetTestServer().CreateClient();
-        var req = new HttpRequestMessage(HttpMethod.Get, "/dados");
+        var req = new HttpRequestMessage(HttpMethod.Get, rota);
         if (token is not null) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await cliente.SendAsync(req);
     }
@@ -153,6 +159,27 @@ public class BearerTests
         using var host = await ApiAsync();
         var r = await ChamarAsync(host, Token(aud, tipo, outraChave ? SiteTeste.ChaveEstranha : null, emissor));
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
+    }
+
+    [Fact]
+    public async Task Dados_da_pessoa_vem_do_access_token()
+    {
+        // Mesmo formato que a BTS emite: bts_niveis é uma lista JSON
+        using var host = await ApiAsync();
+        var token = Token(dados: new Dictionary<string, object>
+        {
+            ["sub"] = "sub-app",
+            ["name"] = "Maria",
+            ["email"] = "maria@teste.com",
+            ["phone_number"] = "+5511999990000",
+            ["bts_niveis"] = new[] { 1, 3 }
+        });
+        var r = await ChamarAsync(host, token, "/pessoa");
+        Assert.Equal("Maria|maria@teste.com|+5511999990000|1,3", await r.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, (await ChamarAsync(host, token, "/so-celular")).StatusCode);
+
+        var semCelular = Token(dados: new Dictionary<string, object> { ["sub"] = "sub-app", ["bts_niveis"] = new[] { 1 } });
+        Assert.Equal(HttpStatusCode.Forbidden, (await ChamarAsync(host, semCelular, "/so-celular")).StatusCode);
     }
 
     [Fact]
