@@ -139,6 +139,8 @@ public static class BtsExtensions
             else await ctx.SignOutAsync(); // esquema padrão do site
             return Results.SignOut(new AuthenticationProperties { RedirectUri = "/" }, esquemas);
         }).AllowAnonymous().DisableAntiforgery(); // conferido acima (funciona também sem MVC)
+        if (app.ServiceProvider.GetService<IServiceProviderIsService>()?.IsService(typeof(IVinculoBts)) == true)
+            VinculoBts.Mapear(app, bts);
         return grupo;
     }
 

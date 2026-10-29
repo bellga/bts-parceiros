@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.1.0
+- `Bts.Login.AspNetCore`: **vínculo com contas existentes** (`AddVinculoBts<T>`, `IVinculoBts`). Conta já ligada entra direto; e-mail igual nunca liga sozinho: a pessoa entra uma vez pelo login antigo e confirma (cookie cifrado com prazo de 10 min, antifalsificação, conta diferente recusada); pessoa nova ganha conta. Rota `/vincular/bts/iniciar` para quem já está conectado; conta BTS ligada a outra conta não é tomada. Opção `VinculoAutomatico` (desligada por padrão). `User.ContaParceiro()` e a claim `bts_conta`.
+
 ## 1.0.1
 - Publicação no **nuget.org** (Trusted Publishing, sem chave guardada), licença MIT, ícone, símbolos (`.snupkg`) com Source Link. Código igual ao da 1.0.0.
 

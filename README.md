@@ -86,7 +86,51 @@ Já usa outro login (Google, senha própria)? Em vez de `AddEntrarComBts`, adici
 
 Exemplo completo: `exemplos/SiteParceiro`.
 
-## 4. API do parceiro (tokens dos seus apps)
+## 4. Já tenho usuários: vincular contas existentes
+
+Seu sistema já tem contas (senha própria, Google, Facebook…) e muitas pessoas também têm conta BTS com o mesmo
+e-mail? O pacote liga as duas **sem nunca juntar contas só porque o e-mail é igual** (isso abriria caminho para
+roubo de conta). Você implementa só o acesso às suas contas:
+
+```csharp
+public class MeuVinculo(MeuDbContext db) : IVinculoBts
+{
+    public Task<string?> ContaPorSubAsync(string sub, CancellationToken ct) => ...;     // conta já ligada?
+    public Task<string?> ContaPorEmailAsync(string email, CancellationToken ct) => ...; // conta com o mesmo e-mail?
+    public Task VincularAsync(string conta, BtsPessoa pessoa, CancellationToken ct) => ...; // grava o sub na conta
+    public Task<string> CriarContaAsync(BtsPessoa pessoa, CancellationToken ct) => ...;     // conta nova, já ligada
+    public Task<string?> ContaAtualAsync(HttpContext ctx, CancellationToken ct) => ...;   // quem está conectado no SEU login
+}
+
+builder.Services.AddEntrarComBts(o => { /* ... */ })
+    .AddVinculoBts<MeuVinculo>(o =>
+    {
+        o.CaminhoLoginProprio = "/login";   // sua página de login (recebe ?ReturnUrl=)
+        o.NomeSite = "Meu Site";
+    });
+```
+
+O que acontece quando a pessoa entra com a BTS:
+
+1. **`sub` já ligado** a uma conta sua → entra nela.
+2. **E-mail igual** ao de uma conta sua → página “Você já tem uma conta aqui”: a pessoa entra **uma vez** do jeito
+   de sempre, confirma (“Ligar e continuar”) e só então o `sub` é gravado. A identidade da BTS fica guardada por
+   10 minutos num cookie cifrado; “Agora não” desiste sem ligar nada. Se ela entrar numa conta diferente, nada é ligado.
+3. **Nenhuma conta** → `CriarContaAsync`.
+
+Depois disso, `User.ContaParceiro()` traz o identificador da conta no seu sistema. Quem já está conectado no seu login
+também pode ligar a conta BTS por um botão “Vincular conta BTS” com `href="/vincular/bts/iniciar"` (serve até quando os
+e-mails são diferentes). Uma conta BTS já ligada a outra conta sua não é tomada.
+
+- `o.VinculoAutomatico = true` liga direto pelo e-mail, sem pedir o login antigo. Use **só** se o seu sistema também
+  confirmou o e-mail das contas (link de confirmação ou Google verificado). Risco: e-mail trocado ou reaproveitado pelo provedor.
+- Usa ASP.NET Identity ou outro esquema? Implemente também `EntrarAsync` (opcional) para conectar a pessoa do seu jeito.
+- O cookie do seu login precisa ser `SameSite=Lax` (o padrão do ASP.NET) para o “Vincular conta BTS” funcionar.
+- As páginas do vínculo são HTML simples, sem script e sem estilo inline (funcionam com qualquer CSP).
+- App com API própria (sem site): faça a mesma lógica na API, ao receber o primeiro token de cada `sub`: nunca ligue
+  pelo e-mail sem a pessoa provar que é dona da conta antiga (entrando nela pelo app).
+
+## 5. API do parceiro (tokens dos seus apps)
 
 ```csharp
 builder.Services.AddAuthentication(BtsPadroes.EsquemaBearer)
@@ -95,7 +139,7 @@ builder.Services.AddAuthentication(BtsPadroes.EsquemaBearer)
 
 Só aceita **access token** da BTS (`typ` = `at+jwt`) emitido para os seus ClientIds; id_token não serve de chave.
 
-## 5. App .NET MAUI
+## 6. App .NET MAUI
 
 ```csharp
 var bts = BtsLoginMaui.Criar(
@@ -143,7 +187,7 @@ E no `AndroidManifest.xml`, dentro de `<manifest>`:
 
 Outros apps .NET (WPF, console, Avalonia): use `Bts.Login.Cliente` com `new NavegadorRetornoLocal()`.
 
-## 6. Regras para parceiros (resumo)
+## 7. Regras para parceiros (resumo)
 
 - Peça só os escopos de que precisa; diga na sua tela por que pede o celular ou os níveis.
 - Use o `sub` como chave da conta (o e-mail pode mudar).

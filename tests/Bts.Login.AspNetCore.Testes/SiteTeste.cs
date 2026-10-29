@@ -39,13 +39,15 @@ public sealed class SiteTeste : IAsyncDisposable
         Cliente.BaseAddress = new Uri("https://parceiro.teste/");
     }
 
-    public static async Task<SiteTeste> CriarAsync(Action<BtsLoginOptions>? configurar = null)
+    public static async Task<SiteTeste> CriarAsync(Action<BtsLoginOptions>? configurar = null,
+        Action<Microsoft.AspNetCore.Authentication.AuthenticationBuilder, IServiceCollection>? extra = null,
+        Action<Microsoft.AspNetCore.Routing.IEndpointRouteBuilder>? rotas = null)
     {
         BtsFalsa? bts = null;
         var host = new HostBuilder().ConfigureWebHost(web => web.UseTestServer().ConfigureServices(s =>
         {
             s.AddRouting();
-            s.AddEntrarComBts(o =>
+            var auth = s.AddEntrarComBts(o =>
             {
                 o.Emissor = Emissor;
                 o.ClientId = ClientId;
@@ -53,6 +55,7 @@ public sealed class SiteTeste : IAsyncDisposable
                 o.Escopos.Add(BtsEscopos.Niveis);
                 configurar?.Invoke(o);
             });
+            extra?.Invoke(auth, s);
             s.Configure<OpenIdConnectOptions>(BtsPadroes.Esquema, o =>
             {
                 var cfg = new OpenIdConnectConfiguration
@@ -79,11 +82,13 @@ public sealed class SiteTeste : IAsyncDisposable
                 e.MapGet("/eu", (ClaimsPrincipal u) => Results.Ok(new
                 {
                     id = u.IdBts(),
+                    conta = u.ContaParceiro(),
                     nome = u.NomeBts(),
                     email = u.EmailBts(),
                     niveis = u.NiveisBts().ToArray()
                 })).RequireAuthorization();
                 e.MapGet("/so-com-celular", () => "ok").RequireAuthorization("celular");
+                rotas?.Invoke(e);
             });
         }));
         var site = new SiteTeste(await host.StartAsync());
@@ -104,6 +109,9 @@ public sealed class BtsFalsa : HttpMessageHandler
 {
     public string? Nonce { get; set; }
     public int[] Niveis { get; set; } = [1, 3];
+    public string Sub { get; set; } = "sub-do-parceiro";
+    public string Email { get; set; } = "maria@teste.com";
+    public bool EmailConfirmado { get; set; } = true;
     public SecurityKey ChaveAssinatura { get; set; } = SiteTeste.Chave;
     public string Audiencia { get; set; } = SiteTeste.ClientId;
     public Dictionary<string, string> UltimoPedido { get; private set; } = [];
@@ -126,10 +134,10 @@ public sealed class BtsFalsa : HttpMessageHandler
             SigningCredentials = new SigningCredentials(ChaveAssinatura, SecurityAlgorithms.RsaSha256),
             Claims = new Dictionary<string, object>
             {
-                ["sub"] = "sub-do-parceiro",
+                ["sub"] = Sub,
                 ["name"] = "Maria Teste",
-                ["email"] = "maria@teste.com",
-                ["email_verified"] = true,
+                ["email"] = Email,
+                ["email_verified"] = EmailConfirmado,
                 ["nonce"] = Nonce ?? "",
                 ["bts_niveis"] = Niveis
             }

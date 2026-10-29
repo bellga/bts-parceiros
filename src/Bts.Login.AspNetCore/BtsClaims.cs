@@ -16,12 +16,17 @@ public static class BtsClaims
     public const string CelularConfirmado = "phone_number_verified";
     /// <summary>Níveis de verificação: 1 = e-mail, 2 = CPF, 3 = celular, 4 = documento/biometria.</summary>
     public const string Niveis = "bts_niveis";
+    /// <summary>Identificador da conta no <b>seu</b> sistema, quando o vínculo (<c>AddVinculoBts</c>) está ligado.</summary>
+    public const string Conta = "bts_conta";
 }
 
 /// <summary>Atalhos para ler a pessoa que entrou com a BTS.</summary>
 public static class BtsUsuarioExtensions
 {
     public static string? IdBts(this ClaimsPrincipal u) => u.FindFirst(BtsClaims.Id)?.Value;
+
+    /// <summary>Conta no seu sistema ligada a esta pessoa (com <c>AddVinculoBts</c>).</summary>
+    public static string? ContaParceiro(this ClaimsPrincipal u) => u.FindFirst(BtsClaims.Conta)?.Value;
     public static string? NomeBts(this ClaimsPrincipal u) => u.FindFirst(BtsClaims.Nome)?.Value;
     public static string? EmailBts(this ClaimsPrincipal u) => u.FindFirst(BtsClaims.Email)?.Value;
 
