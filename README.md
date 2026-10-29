@@ -21,11 +21,14 @@ Peça o cadastro à BTS informando:
   - site: `https://SEU-SITE/signin-bts` e, para a saída, `https://SEU-SITE/signout-callback-bts`;
   - app de celular: um esquema próprio com o domínio invertido, por exemplo `com.exemplo.app:/bts`;
   - app de computador: `http://127.0.0.1/bts` (sem porta — o app escolhe uma porta livre na hora).
+- Tem **mais de um app ou site** (ex.: app do motorista e do passageiro)? Peça um ClientId para cada um, no mesmo
+  **grupo**: a mesma pessoa recebe o mesmo `sub` em todos, e cada um mantém os seus endereços de volta e escopos.
+  Na API, aceite os tokens de todos eles: `o.ClientIds.Add("app-motorista"); o.ClientIds.Add("app-passageiro");`.
 - **Escopos** que vai pedir (só o necessário):
 
 | Escopo | O que chega |
 |---|---|
-| `openid` | `sub`: identificador da pessoa **só para você** (cada parceiro recebe um diferente). Use como chave da conta. |
+| `openid` | `sub`: identificador da pessoa **só para você** (cada parceiro recebe um diferente; todos os seus apps e sites recebem o mesmo). Use como chave da conta. |
 | `profile` | `name` |
 | `email` | `email`, `email_verified` (sempre confirmado) |
 | `phone` | `phone_number` (+55…), `phone_number_verified` — só se a pessoa confirmou o celular |
