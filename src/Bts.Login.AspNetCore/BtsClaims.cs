@@ -18,6 +18,23 @@ public static class BtsClaims
     public const string Niveis = "bts_niveis";
     /// <summary>Identificador da conta no <b>seu</b> sistema, quando o vínculo (<c>AddVinculoBts</c>) está ligado.</summary>
     public const string Conta = "bts_conta";
+    /// <summary>Quando a pessoa entrou na BTS (segundos Unix). Renovar o token não muda este valor.</summary>
+    public const string AutenticadoEm = "auth_time";
+    /// <summary>Como a pessoa entrou na BTS (lista; valores em <see cref="BtsFormasDeEntrar"/>).</summary>
+    public const string FormasDeEntrar = "amr";
+}
+
+/// <summary>Valores do claim <c>amr</c> (como a pessoa entrou na BTS).</summary>
+public static class BtsFormasDeEntrar
+{
+    /// <summary>Digitou a senha da BTS.</summary>
+    public const string Senha = "pwd";
+    /// <summary>Digitou o código do app autenticador (ou de recuperação).</summary>
+    public const string CodigoAutenticador = "otp";
+    /// <summary>Usou mais de um fator (senha + código).</summary>
+    public const string DuasEtapas = "mfa";
+    /// <summary>Entrou pelo Google (sem a senha da BTS). O Google não aceita pedido para digitar a senha de novo.</summary>
+    public const string Google = "google";
 }
 
 /// <summary>Atalhos para ler a pessoa que entrou com a BTS.</summary>
@@ -59,4 +76,47 @@ public static class BtsUsuarioExtensions
     }
 
     public static bool TemNivelBts(this ClaimsPrincipal u, int nivel) => u.NiveisBts().Contains(nivel);
+
+    /// <summary>Quando a pessoa entrou na BTS (claim <c>auth_time</c>). null = a BTS não informou.</summary>
+    public static DateTimeOffset? AutenticadoEmBts(this ClaimsPrincipal u) =>
+        long.TryParse(u.FindFirst(BtsClaims.AutenticadoEm)?.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var s)
+            ? DateTimeOffset.FromUnixTimeSeconds(s)
+            : null;
+
+    /// <summary>Como a pessoa entrou na BTS (claim <c>amr</c>): <see cref="BtsFormasDeEntrar"/>.</summary>
+    public static IReadOnlyList<string> FormasDeEntrarBts(this ClaimsPrincipal u)
+    {
+        var formas = new List<string>();
+        foreach (var c in u.FindAll(BtsClaims.FormasDeEntrar))
+        {
+            var v = c.Value.Trim();
+            if (v.StartsWith('['))
+            {
+                try
+                {
+                    foreach (var e in JsonDocument.Parse(v).RootElement.EnumerateArray())
+                        if (e.ValueKind == JsonValueKind.String && e.GetString() is { Length: > 0 } f) formas.Add(f);
+                }
+                catch (JsonException) { }
+            }
+            else if (v.Length > 0) formas.Add(v);
+        }
+        return formas.Distinct().ToList();
+    }
+
+    /// <summary>Entrou digitando a senha da BTS (não só pelo Google).</summary>
+    public static bool EntrouComSenhaBts(this ClaimsPrincipal u) => u.FormasDeEntrarBts().Contains(BtsFormasDeEntrar.Senha);
+
+    /// <summary>
+    /// A pessoa entrou na BTS há no máximo <paramref name="limite"/> (e com a senha, se <paramref name="exigirSenha"/>).
+    /// Sem <c>auth_time</c> no token: não é recente.
+    /// </summary>
+    public static bool LoginRecenteBts(this ClaimsPrincipal u, TimeSpan limite, bool exigirSenha = false,
+        TimeProvider? relogio = null)
+    {
+        if (u.AutenticadoEmBts() is not { } em) return false;
+        var agora = (relogio ?? TimeProvider.System).GetUtcNow();
+        if (agora - em > limite + BtsPadroes.FolgaRelogio) return false;
+        return !exigirSenha || u.EntrouComSenhaBts();
+    }
 }

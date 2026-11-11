@@ -151,6 +151,8 @@ O access token já traz os dados da pessoa — a API pode confiar só nele, sem 
 | `email`, `email_verified` | escopo `email` (sempre confirmado) |
 | `phone_number`, `phone_number_verified` | escopo `phone` **e** celular confirmado |
 | `bts_niveis` | escopo `bts.niveis` (lista: `[1, 3]`) |
+| `auth_time` | sempre: quando a pessoa entrou na BTS (segundos Unix); renovar o token **não** muda |
+| `amr` | como entrou (lista): `pwd` senha, `otp` + `mfa` com duas etapas, `google` pelo Google |
 
 Na API: `User.IdBts()`, `User.EmailBts()`, `User.CelularBts()`, `User.NiveisBts()`, `User.TemNivelBts(3)` e a política
 `ExigirNivelBts(3)` funcionam igual ao site.
@@ -209,10 +211,59 @@ E no `AndroidManifest.xml`, dentro de `<manifest>`:
 
 Outros apps .NET (WPF, console, Avalonia): use `Bts.Login.Cliente` com `new NavegadorRetornoLocal()`.
 
-## 7. Regras para parceiros (resumo)
+## 7. Ação sensível: exigir login recente
+
+Para ações como trocar a conta de recebimento ou o e-mail, exija que a pessoa tenha entrado na BTS **há poucos
+minutos**. A conferência vale no **servidor** (site ou API), pelo `auth_time` do token — nunca só no app ou no navegador.
+
+**Site e API** — uma política:
+
+```csharp
+builder.Services.AddAuthorization(o =>
+{
+    o.AddPolicy("sensivel", p => p.ExigirLoginRecenteBts(TimeSpan.FromMinutes(5)));
+    // Só vale a senha da BTS (entrar pelo Google não conta):
+    o.AddPolicy("sensivel-senha", p => p.ExigirLoginRecenteBts(TimeSpan.FromMinutes(5), exigirSenha: true));
+});
+
+app.MapPost("/conta/recebimento", TrocarRecebimento).RequireAuthorization("sensivel");
+```
+
+- **No site** (GET): login antigo leva a pessoa para a BTS com `max_age` e de volta para a mesma página. Se a sessão
+  da BTS ainda for nova, volta sem pedir nada; com `exigirSenha`, a BTS sempre mostra a tela de login. Um POST com
+  login antigo é recusado: antes do formulário, mande a pessoa para `/entrar/bts?retorno=/pagina&max_age=300`
+  (ou `&senha=1` para digitar a senha de novo).
+- **Na API** (Bearer): responde `401` com
+  `WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age=300` (RFC 9470). Outras recusas
+  continuam `403`.
+- Atalhos: `User.AutenticadoEmBts()`, `User.FormasDeEntrarBts()`, `User.EntrouComSenhaBts()`,
+  `User.LoginRecenteBts(TimeSpan.FromMinutes(5))`.
+
+**App** — quando a API pedir, entre de novo e repita a chamada:
+
+```csharp
+var resposta = await http.SendAsync(pedido);
+if (BtsCliente.PedeLoginRecente(resposta, out var limite))
+{
+    sessao = await bts.EntrarAsync(new BtsOpcoesEntrar { LoginRecente = limite ?? TimeSpan.FromMinutes(5) });
+    // guarde os tokens novos e repita o pedido com o access token novo
+}
+```
+
+- `new BtsOpcoesEntrar { PedirSenha = true }` manda `prompt=login` (a pessoa digita de novo mesmo com a sessão aberta).
+- Com `PedirSenha` ou `LoginRecente`, o pacote confere o `auth_time` do id_token na volta; se não for recente, lança
+  `BtsException` com `Erro == "insufficient_user_authentication"`.
+- `sessao.Pessoa.AutenticadoEm`, `sessao.Pessoa.FormasDeEntrar` e `sessao.Pessoa.EntrouComSenha` mostram como foi.
+
+**Google:** o Google não aceita pedido para digitar a senha de novo. Quem entra pela BTS com o Google recebe
+`amr: ["google"]` e o `auth_time` do momento em que voltou pela BTS. Se a ação exige a senha da BTS, use
+`exigirSenha: true`.
+
+## 8. Regras para parceiros (resumo)
 
 - Peça só os escopos de que precisa; diga na sua tela por que pede o celular ou os níveis.
 - Use o `sub` como chave da conta (o e-mail pode mudar).
+- Para ações sensíveis, exija login recente no servidor (seção 7), não só no app.
 - Nunca peça a senha da BTS no seu site ou app: o login acontece sempre em `login.bellga.tech`.
 - Use o botão oficial sem mudar cores, texto ou proporções (https://bellga.tech/marca.html).
 - Os dados recebidos seguem a LGPD: use só para a finalidade informada à pessoa e apague quando ela pedir.

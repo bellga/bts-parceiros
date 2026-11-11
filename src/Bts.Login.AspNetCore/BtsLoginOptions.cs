@@ -16,6 +16,12 @@ public static class BtsPadroes
     public const string EsquemaBearer = "Bts.Bearer";
 
     public const string NomeExibicao = "BTS";
+
+    /// <summary>Tolerância de relógio ao conferir o <c>auth_time</c>.</summary>
+    public static readonly TimeSpan FolgaRelogio = TimeSpan.FromMinutes(1);
+
+    /// <summary>Erro da API quando o login é antigo demais para a ação (RFC 9470).</summary>
+    public const string ErroLoginRecente = "insufficient_user_authentication";
 }
 
 /// <summary>Escopos que o parceiro pode pedir. Cada um precisa estar liberado no cadastro do parceiro.</summary>

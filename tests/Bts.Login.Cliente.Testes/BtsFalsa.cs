@@ -40,6 +40,11 @@ public sealed class BtsFalsa : HttpMessageHandler, INavegadorBts
     public DateTime? Expira { get; set; }
     public int[] Niveis { get; set; } = [1, 3];
     public bool RefreshValido { get; set; } = true;
+    /// <summary>auth_time emitido; null = a hora do login (agora).</summary>
+    public DateTimeOffset? AutenticadoEm { get; set; }
+    public bool EmitirAutenticadoEm { get; set; } = true;
+    /// <summary>amr emitido; null = não emite.</summary>
+    public string[]? Formas { get; set; } = ["pwd"];
 
     public Uri? UltimoAutorizar { get; private set; }
     public List<string> Revogados { get; } = [];
@@ -116,6 +121,8 @@ public sealed class BtsFalsa : HttpMessageHandler, INavegadorBts
             ["bts_niveis"] = Niveis
         };
         if (nonce is not null) claims["nonce"] = nonce;
+        if (EmitirAutenticadoEm) claims["auth_time"] = (AutenticadoEm ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
+        if (Formas is not null) claims["amr"] = Formas;
         var expira = Expira ?? agora.AddMinutes(15);
         var idToken = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {

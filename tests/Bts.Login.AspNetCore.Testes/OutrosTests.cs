@@ -115,6 +115,12 @@ public class BearerTests
                 e.MapGet("/pessoa", (ClaimsPrincipal u) => $"{u.NomeBts()}|{u.EmailBts()}|{u.CelularBts()}|{string.Join(',', u.NiveisBts())}")
                     .RequireAuthorization();
                 e.MapGet("/so-celular", () => "ok").RequireAuthorization(p => p.ExigirNivelBts(3));
+                e.MapGet("/sensivel", () => "ok").RequireAuthorization(p => p.ExigirLoginRecenteBts(TimeSpan.FromMinutes(5)));
+                e.MapGet("/sensivel-senha", () => "ok")
+                    .RequireAuthorization(p => p.ExigirLoginRecenteBts(TimeSpan.FromMinutes(5), exigirSenha: true));
+                e.MapGet("/login", (ClaimsPrincipal u) =>
+                    $"{u.AutenticadoEmBts()?.ToUnixTimeSeconds()}|{string.Join(',', u.FormasDeEntrarBts())}|{u.EntrouComSenhaBts()}")
+                    .RequireAuthorization();
             });
         }));
         return await host.StartAsync();
@@ -187,6 +193,69 @@ public class BearerTests
     {
         using var host = await ApiAsync();
         Assert.Equal(HttpStatusCode.Unauthorized, (await ChamarAsync(host, null)).StatusCode);
+    }
+
+    // ── Login recente (auth_time / amr) ──
+
+    private static Dictionary<string, object> Login(TimeSpan? ha, params string[] formas)
+    {
+        var d = new Dictionary<string, object> { ["sub"] = "sub-app" };
+        if (ha is { } t) d["auth_time"] = DateTimeOffset.UtcNow.Add(-t).ToUnixTimeSeconds();
+        if (formas.Length > 0) d["amr"] = formas;
+        return d;
+    }
+
+    [Fact]
+    public async Task Api_le_auth_time_e_amr_do_access_token()
+    {
+        using var host = await ApiAsync();
+        var quando = DateTimeOffset.UtcNow.AddMinutes(-2).ToUnixTimeSeconds();
+        var r = await ChamarAsync(host, Token(dados: new() { ["sub"] = "s", ["auth_time"] = quando, ["amr"] = new[] { "pwd", "otp", "mfa" } }),
+            "/login");
+        Assert.Equal($"{quando}|pwd,otp,mfa|True", await r.Content.ReadAsStringAsync());
+        var um = await ChamarAsync(host, Token(dados: new() { ["sub"] = "s", ["amr"] = new[] { "google" } }), "/login");
+        Assert.Equal("|google|False", await um.Content.ReadAsStringAsync()); // lista com um item só
+    }
+
+    [Fact]
+    public async Task Api_aceita_login_recente_e_recusa_antigo_com_401_do_rfc_9470()
+    {
+        using var host = await ApiAsync();
+        Assert.Equal(HttpStatusCode.OK, (await ChamarAsync(host, Token(dados: Login(TimeSpan.FromMinutes(2), "pwd")), "/sensivel")).StatusCode);
+
+        foreach (var dados in new[] { Login(TimeSpan.FromMinutes(10), "pwd"), Login(null, "pwd") }) // antigo, ou sem auth_time
+        {
+            var r = await ChamarAsync(host, Token(dados: dados), "/sensivel");
+            Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
+            var cabecalho = r.Headers.WwwAuthenticate.ToString();
+            Assert.Contains("error=\"insufficient_user_authentication\"", cabecalho);
+            Assert.Contains("max_age=300", cabecalho);
+        }
+        // Sem token continua o 401 normal (sem o erro de login recente)
+        var sem = await ChamarAsync(host, null, "/sensivel");
+        Assert.Equal(HttpStatusCode.Unauthorized, sem.StatusCode);
+        Assert.DoesNotContain("insufficient_user_authentication", sem.Headers.WwwAuthenticate.ToString());
+    }
+
+    [Fact]
+    public async Task Api_que_exige_senha_recusa_login_recente_pelo_google()
+    {
+        using var host = await ApiAsync();
+        Assert.Equal(HttpStatusCode.OK,
+            (await ChamarAsync(host, Token(dados: Login(TimeSpan.FromMinutes(1), "pwd", "otp", "mfa")), "/sensivel-senha")).StatusCode);
+        var google = await ChamarAsync(host, Token(dados: Login(TimeSpan.FromMinutes(1), "google")), "/sensivel-senha");
+        Assert.Equal(HttpStatusCode.Unauthorized, google.StatusCode);
+        Assert.Contains("com a senha", google.Headers.WwwAuthenticate.ToString());
+        // A política simples aceita o Google
+        Assert.Equal(HttpStatusCode.OK, (await ChamarAsync(host, Token(dados: Login(TimeSpan.FromMinutes(1), "google")), "/sensivel")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Outras_recusas_continuam_403()
+    {
+        using var host = await ApiAsync();
+        var r = await ChamarAsync(host, Token(dados: new() { ["sub"] = "s", ["bts_niveis"] = new[] { 1 } }), "/so-celular");
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
     }
 }
 

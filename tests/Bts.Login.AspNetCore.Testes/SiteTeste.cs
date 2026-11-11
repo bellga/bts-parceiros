@@ -115,6 +115,10 @@ public sealed class BtsFalsa : HttpMessageHandler
     public SecurityKey ChaveAssinatura { get; set; } = SiteTeste.Chave;
     public string Audiencia { get; set; } = SiteTeste.ClientId;
     public Dictionary<string, string> UltimoPedido { get; private set; } = [];
+    /// <summary>Quando a pessoa "entrou" na BTS (auth_time). null = não emite.</summary>
+    public DateTimeOffset? AutenticadoEm { get; set; } = DateTimeOffset.UtcNow;
+    /// <summary>Como entrou (amr). null = não emite.</summary>
+    public string[]? Formas { get; set; } = ["pwd"];
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
     {
@@ -124,6 +128,17 @@ public sealed class BtsFalsa : HttpMessageHandler
             .ToDictionary(p => Uri.UnescapeDataString(p[0]), p => Uri.UnescapeDataString(p.Length > 1 ? p[1].Replace('+', ' ') : ""));
 
         var agora = DateTime.UtcNow;
+        var dados = new Dictionary<string, object>
+        {
+            ["sub"] = Sub,
+            ["name"] = "Maria Teste",
+            ["email"] = Email,
+            ["email_verified"] = EmailConfirmado,
+            ["nonce"] = Nonce ?? "",
+            ["bts_niveis"] = Niveis
+        };
+        if (AutenticadoEm is { } em) dados["auth_time"] = em.ToUnixTimeSeconds();
+        if (Formas is not null) dados["amr"] = Formas;
         var idToken = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = SiteTeste.Emissor,
@@ -132,15 +147,7 @@ public sealed class BtsFalsa : HttpMessageHandler
             NotBefore = agora,
             Expires = agora.AddMinutes(15),
             SigningCredentials = new SigningCredentials(ChaveAssinatura, SecurityAlgorithms.RsaSha256),
-            Claims = new Dictionary<string, object>
-            {
-                ["sub"] = Sub,
-                ["name"] = "Maria Teste",
-                ["email"] = Email,
-                ["email_verified"] = EmailConfirmado,
-                ["nonce"] = Nonce ?? "",
-                ["bts_niveis"] = Niveis
-            }
+            Claims = dados
         });
         var json = JsonSerializer.Serialize(new
         {

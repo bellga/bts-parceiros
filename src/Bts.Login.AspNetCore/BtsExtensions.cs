@@ -47,6 +47,7 @@ public static class BtsExtensions
         builder.Services.AddOptions<BtsLoginOptions>().Configure(configurar).Validate(o => { o.Validar(); return true; })
             .ValidateOnStart();
         builder.Services.AddAntiforgery();
+        BtsResultadoAutorizacao.Registrar(builder.Services);
         builder.Services.AddOptions<OpenIdConnectOptions>(BtsPadroes.Esquema)
             .Configure<IOptions<BtsLoginOptions>>((oidc, bts) => Configurar(oidc, bts.Value, esquemaSessao));
         return builder.AddOpenIdConnect(BtsPadroes.Esquema, BtsPadroes.NomeExibicao, _ => { });
@@ -99,6 +100,7 @@ public static class BtsExtensions
         string esquema = BtsPadroes.EsquemaBearer)
     {
         builder.Services.AddOptions<BtsBearerOptions>(esquema).Configure(configurar);
+        BtsResultadoAutorizacao.Registrar(builder.Services);
         builder.Services.AddOptions<JwtBearerOptions>(esquema)
             .Configure<IOptionsMonitor<BtsBearerOptions>>((jwt, bts) => Configurar(jwt, bts.Get(esquema)));
         return builder.AddJwtBearer(esquema, _ => { });
@@ -121,13 +123,27 @@ public static class BtsExtensions
     /// <summary>
     /// Rotas do botão: GET <c>/entrar/bts?retorno=/caminho</c> (inicia o login) e POST <c>/sair/bts</c>
     /// (encerra a sessão no site e na BTS; mande o token antifalsificação no formulário).
+    /// Para pedir o login de novo antes de uma ação sensível: <c>/entrar/bts?retorno=/caminho&amp;senha=1</c>
+    /// (digitar a senha de novo) ou <c>&amp;max_age=300</c> (aceita login de até 5 minutos).
     /// </summary>
     public static IEndpointConventionBuilder MapEntrarComBts(this IEndpointRouteBuilder app)
     {
         var bts = app.ServiceProvider.GetRequiredService<IOptions<BtsLoginOptions>>().Value;
         var grupo = app.MapGroup("");
-        grupo.MapGet(bts.CaminhoEntrar, (string? retorno) =>
-                Results.Challenge(new AuthenticationProperties { RedirectUri = SoLocal(retorno) }, [BtsPadroes.Esquema]))
+        grupo.MapGet(bts.CaminhoEntrar, (HttpContext ctx, string? retorno) =>
+            {
+                var q = ctx.Request.Query;
+                var senha = q["senha"].ToString() is "1" or "true";
+                TimeSpan? maxAge = int.TryParse(q["max_age"], System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var s) ? TimeSpan.FromSeconds(s) : null;
+                var props = new OpenIdConnectChallengeProperties
+                {
+                    RedirectUri = SoLocal(retorno),
+                    Prompt = senha ? OpenIdConnectPrompt.Login : null,
+                    MaxAge = maxAge
+                };
+                return Results.Challenge(props, [BtsPadroes.Esquema]);
+            })
             .AllowAnonymous();
         grupo.MapPost(bts.CaminhoSair, async (HttpContext ctx, IAntiforgery af) =>
         {
@@ -150,6 +166,16 @@ public static class BtsExtensions
         && !retorno.StartsWith("/\\", StringComparison.Ordinal) && !retorno.Any(char.IsControl)
             ? retorno
             : "/";
+
+    /// <summary>
+    /// Política que exige login recente na BTS (ex.: 5 minutos) antes de uma ação sensível, conferido no servidor pelo
+    /// <c>auth_time</c>. Com <paramref name="exigirSenha"/>, o login também precisa ter sido com a senha da BTS (entrar
+    /// pelo Google não vale). Se não for: no site, a pessoa vai para a BTS e volta; na API, 401 com
+    /// <c>error="insufficient_user_authentication"</c> e <c>max_age</c> (o app chama o login de novo).
+    /// </summary>
+    public static AuthorizationPolicyBuilder ExigirLoginRecenteBts(this AuthorizationPolicyBuilder p, TimeSpan limite,
+        bool exigirSenha = false) =>
+        p.RequireAuthenticatedUser().AddRequirements(new LoginRecenteBtsRequisito(limite, exigirSenha));
 
     /// <summary>Política que exige um nível de verificação da BTS (1 = e-mail, 3 = celular).</summary>
     public static AuthorizationPolicyBuilder ExigirNivelBts(this AuthorizationPolicyBuilder p, int nivel) =>

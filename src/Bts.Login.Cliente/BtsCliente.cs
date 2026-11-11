@@ -59,6 +59,28 @@ public sealed record BtsPessoa(
     string Id, string? Nome, string? Email, bool EmailConfirmado, string? Celular, IReadOnlySet<int> Niveis)
 {
     public bool TemNivel(int nivel) => Niveis.Contains(nivel);
+
+    /// <summary>Quando a pessoa entrou na BTS (<c>auth_time</c>). Renovar o token não muda este valor.</summary>
+    public DateTimeOffset? AutenticadoEm { get; init; }
+
+    /// <summary>Como entrou (<c>amr</c>): <c>pwd</c> (senha), <c>otp</c>/<c>mfa</c> (duas etapas), <c>google</c>.</summary>
+    public IReadOnlyList<string> FormasDeEntrar { get; init; } = [];
+
+    /// <summary>Entrou digitando a senha da BTS (não só pelo Google).</summary>
+    public bool EntrouComSenha => FormasDeEntrar.Contains("pwd");
+}
+
+/// <summary>Opções do login (para ações sensíveis: pedir a senha de novo ou aceitar só login recente).</summary>
+public sealed class BtsOpcoesEntrar
+{
+    /// <summary>Pede o login de novo mesmo com a sessão da BTS aberta no navegador (<c>prompt=login</c>).</summary>
+    public bool PedirSenha { get; init; }
+
+    /// <summary>
+    /// Aceita só um login feito há no máximo este tempo (<c>max_age</c>); mais antigo, a BTS pede o login de novo.
+    /// Use o <c>max_age</c> que a sua API devolveu no 401 (<see cref="BtsCliente.PedeLoginRecente"/>).
+    /// </summary>
+    public TimeSpan? LoginRecente { get; init; }
 }
 
 /// <summary>Resultado do login. Guarde o <see cref="RefreshToken"/> em armazenamento seguro (SecureStorage).</summary>
@@ -102,8 +124,22 @@ public sealed class BtsCliente
     /// <summary>Abre o login da BTS e devolve a pessoa e os tokens.</summary>
     /// <param name="forcarSenha">Pede a senha de novo mesmo com a sessão da BTS aberta no navegador.</param>
     /// <exception cref="BtsCanceladoException">A pessoa cancelou.</exception>
-    public async Task<BtsSessao> EntrarAsync(bool forcarSenha = false, CancellationToken ct = default)
+    public Task<BtsSessao> EntrarAsync(bool forcarSenha = false, CancellationToken ct = default) =>
+        EntrarAsync(new BtsOpcoesEntrar { PedirSenha = forcarSenha }, ct);
+
+    /// <summary>
+    /// Abre o login da BTS com opções. Com <see cref="BtsOpcoesEntrar.PedirSenha"/> ou
+    /// <see cref="BtsOpcoesEntrar.LoginRecente"/>, confere na volta o <c>auth_time</c> do id_token (o navegador não
+    /// consegue pular o login). A API do parceiro confere de novo no servidor.
+    /// </summary>
+    /// <exception cref="BtsCanceladoException">A pessoa cancelou.</exception>
+    /// <exception cref="BtsException">Com <see cref="BtsException.Erro"/> = insufficient_user_authentication: o login não é recente.</exception>
+    public async Task<BtsSessao> EntrarAsync(BtsOpcoesEntrar opcoes, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(opcoes);
+        if (opcoes.LoginRecente < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(opcoes), "Bts: o LoginRecente não pode ser negativo.");
+        var inicio = _relogio.GetUtcNow();
         var cfg = await ConfiguracaoAsync(ct);
         var verificador = Base64Url(RandomNumberGenerator.GetBytes(32));
         var desafio = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verificador)));
@@ -125,7 +161,9 @@ public sealed class BtsCliente
             ["code_challenge"] = desafio,
             ["code_challenge_method"] = "S256"
         };
-        if (forcarSenha) parametros["prompt"] = "login";
+        if (opcoes.PedirSenha) parametros["prompt"] = "login";
+        if (opcoes.LoginRecente is { } maxAge)
+            parametros["max_age"] = ((long)maxAge.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var autorizar = new Uri(cfg.AuthorizationEndpoint + "?" +
             string.Join('&', parametros.Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value)}")));
 
@@ -154,7 +192,80 @@ public sealed class BtsCliente
             ["code_verifier"] = verificador,
             ["client_id"] = _o.ClientId
         }, ct);
-        return await SessaoAsync(cfg, tokens, nonce, null, ct);
+        var sessao = await SessaoAsync(cfg, tokens, nonce, null, ct);
+
+        // Pediu login novo: o auth_time tem de ser deste login (ou dentro do max_age), senão não vale
+        if (opcoes.PedirSenha || opcoes.LoginRecente is not null)
+        {
+            var minimo = opcoes.PedirSenha ? inicio : DateTimeOffset.MinValue;
+            if (opcoes.LoginRecente is { } limite && _relogio.GetUtcNow() - limite > minimo) minimo = _relogio.GetUtcNow() - limite;
+            if (sessao.Pessoa.AutenticadoEm is not { } em || em < minimo - Folga)
+                throw new BtsException("A BTS não confirmou um login recente. Tente de novo.", ErroLoginRecente);
+        }
+        return sessao;
+    }
+
+    /// <summary>Erro (RFC 9470) da API quando a ação pede um login mais recente.</summary>
+    public const string ErroLoginRecente = "insufficient_user_authentication";
+
+    private static readonly TimeSpan Folga = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// A resposta da API do parceiro pede login recente? (401 com
+    /// <c>WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age=...</c>). Se sim, chame
+    /// <see cref="EntrarAsync(BtsOpcoesEntrar, CancellationToken)"/> com <c>LoginRecente = loginRecente</c> e repita a chamada.
+    /// </summary>
+    public static bool PedeLoginRecente(HttpResponseMessage resposta, out TimeSpan? loginRecente)
+    {
+        loginRecente = null;
+        if (resposta.StatusCode != System.Net.HttpStatusCode.Unauthorized) return false;
+        foreach (var desafio in resposta.Headers.WwwAuthenticate)
+        {
+            if (!string.Equals(desafio.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase) || desafio.Parameter is null) continue;
+            var parametros = LerParametros(desafio.Parameter);
+            if (!parametros.TryGetValue("error", out var erro) || erro != ErroLoginRecente) continue;
+            if (parametros.TryGetValue("max_age", out var m) &&
+                long.TryParse(m, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var s))
+                loginRecente = TimeSpan.FromSeconds(s);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Parâmetros de um desafio WWW-Authenticate: <c>a="x, y", b=1</c>.</summary>
+    internal static Dictionary<string, string> LerParametros(string texto)
+    {
+        var dados = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var i = 0;
+        while (i < texto.Length)
+        {
+            while (i < texto.Length && (texto[i] == ',' || char.IsWhiteSpace(texto[i]))) i++;
+            var igual = texto.IndexOf('=', i);
+            if (igual < 0) break;
+            var nome = texto[i..igual].Trim();
+            i = igual + 1;
+            string valor;
+            if (i < texto.Length && texto[i] == '"')
+            {
+                var sb = new StringBuilder();
+                for (i++; i < texto.Length && texto[i] != '"'; i++)
+                {
+                    if (texto[i] == '\\' && i + 1 < texto.Length) i++;
+                    sb.Append(texto[i]);
+                }
+                i++;
+                valor = sb.ToString();
+            }
+            else
+            {
+                var fim = texto.IndexOf(',', i);
+                if (fim < 0) fim = texto.Length;
+                valor = texto[i..fim].Trim();
+                i = fim;
+            }
+            if (nome.Length > 0) dados[nome] = valor;
+        }
+        return dados;
     }
 
     /// <summary>Renova o access token com o refresh token (escopo <c>offline_access</c>). O refresh token muda: guarde o novo.</summary>
@@ -246,7 +357,11 @@ public sealed class BtsCliente
             Texto(jwt, "email"),
             jwt.TryGetPayloadValue<bool>("email_verified", out var ev) && ev,
             Texto(jwt, "phone_number"),
-            Niveis(jwt));
+            Niveis(jwt))
+        {
+            AutenticadoEm = jwt.TryGetPayloadValue<long>("auth_time", out var at) ? DateTimeOffset.FromUnixTimeSeconds(at) : null,
+            FormasDeEntrar = Formas(jwt)
+        };
         return new BtsSessao(pessoa, t.AccessToken!,
             _relogio.GetUtcNow().AddSeconds(t.ExpiraEm > 0 ? t.ExpiraEm : 900), t.RefreshToken ?? refreshAnterior, t.IdToken);
     }
@@ -261,6 +376,14 @@ public sealed class BtsCliente
             foreach (var x in e.EnumerateArray())
                 if (x.TryGetInt32(out var n) && n > 0) niveis.Add(n);
         return niveis;
+    }
+
+    internal static IReadOnlyList<string> Formas(JsonWebToken jwt)
+    {
+        if (!jwt.TryGetPayloadValue<JsonElement>("amr", out var e)) return [];
+        if (e.ValueKind == JsonValueKind.String) return e.GetString() is { Length: > 0 } um ? [um] : [];
+        if (e.ValueKind != JsonValueKind.Array) return [];
+        return [.. e.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).Distinct()];
     }
 
     internal static Dictionary<string, string> LerConsulta(Uri volta)

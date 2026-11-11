@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0
+- **Login recente para ações sensíveis** (a BTS passou a emitir `auth_time` e `amr` em 10/11/2026).
+- `Bts.Login.AspNetCore`: política `ExigirLoginRecenteBts(limite, exigirSenha)` — no site leva a pessoa para a BTS com `max_age` (e `prompt=login` quando exige a senha) e volta para a mesma página; na API responde `401` com `WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age=...` (RFC 9470). Atalhos `User.AutenticadoEmBts()`, `FormasDeEntrarBts()`, `EntrouComSenhaBts()`, `LoginRecenteBts()`; claims `BtsClaims.AutenticadoEm`/`FormasDeEntrar` e `BtsFormasDeEntrar`. `/entrar/bts` aceita `&senha=1` e `&max_age=N`.
+- `Bts.Login.Cliente`: `EntrarAsync(BtsOpcoesEntrar { PedirSenha, LoginRecente })` manda `prompt=login`/`max_age` e confere o `auth_time` na volta (`BtsException` com `Erro = insufficient_user_authentication`); `BtsCliente.PedeLoginRecente(resposta, out limite)` lê o 401 da API; `BtsPessoa.AutenticadoEm`, `FormasDeEntrar`, `EntrouComSenha`. `EntrarAsync(forcarSenha: true)` também confere o `auth_time`.
+
 ## 1.1.0
 - `Bts.Login.AspNetCore`: **vínculo com contas existentes** (`AddVinculoBts<T>`, `IVinculoBts`). Conta já ligada entra direto; e-mail igual nunca liga sozinho: a pessoa entra uma vez pelo login antigo e confirma (cookie cifrado com prazo de 10 min, antifalsificação, conta diferente recusada); pessoa nova ganha conta. Rota `/vincular/bts/iniciar` para quem já está conectado; conta BTS ligada a outra conta não é tomada. Opção `VinculoAutomatico` (desligada por padrão). `User.ContaParceiro()` e a claim `bts_conta`.
 
